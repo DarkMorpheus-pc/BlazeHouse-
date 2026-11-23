@@ -1,0 +1,6 @@
+{
+  "name": "Blaze House - Linux Settings",
+  "description": "Material 3 concept settings and system control center for BlazeOS (Debian & Fedora editions) with dynamic color, fluid animations, and deep hardware optimization.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

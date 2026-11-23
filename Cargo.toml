@@ -1,0 +1,20 @@
+[package]
+name = "blaze-house"
+version = "2.0.0"
+edition = "2021"
+authors = ["Bulut Ars. E. (DarkMorpheus) <darkmorpheus@blazeos.com.tr>"]
+description = "BlazeOS System Control & Optimization Suite Backend Core"
+
+[dependencies]
+sysinfo = "0.33"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "0.8"
+tempfile = "3.8"
+walkdir = "2.4"
+regex = "1.10"
+tokio = { version = "1.35", features = ["full"] }
+iced = { version = "0.13", features = ["tokio", "advanced"] }
+
+[dev-dependencies]
+tokio = { version = "1.35", features = ["full", "test-util"] }
