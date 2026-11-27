@@ -173,7 +173,7 @@ export const fetchSystemUpdates = (distro: DistroBase, force = false): Promise<P
   const request = (async () => {
     try {
       const invoke = await getTauriInvoke();
-      if (invoke) return (await invoke<PackageUpdate[]>('check_system_updates', { distro })) || [];
+      if (invoke) return (await invoke<PackageUpdate[]>('check_system_updates', { distro, force })) || [];
     } catch (err) {
       updatesCache.delete(distro);
       throw err;

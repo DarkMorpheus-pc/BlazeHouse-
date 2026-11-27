@@ -298,15 +298,67 @@ fn package(name: &str, old: &str, new: &str, source: &str) -> PackageUpdate {
         changelog: vec![],
     }
 }
-pub fn check_system_updates_blocking(distro: String) -> Result<Vec<PackageUpdate>, String> {
+pub fn build_fedora_check_upgrade_args(force_refresh: bool) -> Vec<&'static str> {
+    // --assumeyes on check-upgrade never installs packages; it only accepts local
+    // gpgkey=file:///etc/pki/rpm-gpg/... imports into ~/.cache/libdnf5 so
+    // repo_gpgcheck=1 does not fail on non-interactive stdin and silently skip [blaze].
+    let mut args = vec!["check-upgrade", "--quiet", "--assumeyes"];
+    if force_refresh {
+        args.push("--refresh");
+    }
+    args
+}
+
+fn blaze_channel_has_unseen_updates() -> bool {
+    let channel_conf = fs::read_to_string("/etc/blazeos/update-channel.conf").ok();
+    let os_release = fs::read_to_string("/etc/os-release").ok();
+    let info = build_default_channel_info(channel_conf.as_deref(), os_release.as_deref(), "fedora");
+    if !info.channel_url.starts_with("https://") {
+        return false;
+    }
+    let Ok(out) = Command::new("curl")
+        .args(["-fsSL", "--max-time", "5", "-A", "BlazeHouse/5.1", &info.channel_url])
+        .env("LC_ALL", "C")
+        .output()
+    else {
+        return false;
+    };
+    if !out.status.success() {
+        return false;
+    }
+    let mut parsed = info;
+    if apply_remote_channel_json(&mut parsed, &String::from_utf8_lossy(&out.stdout)).is_err() {
+        return false;
+    }
+    for (pkg, remote_vr) in &parsed.remote_packages {
+        if let Ok(rpm_out) = Command::new("rpm")
+            .args(["-q", "--qf", "%{VERSION}-%{RELEASE}", pkg])
+            .env("LC_ALL", "C")
+            .output()
+        {
+            if rpm_out.status.success() {
+                let installed_vr = String::from_utf8_lossy(&rpm_out.stdout).trim().to_string();
+                if !installed_vr.is_empty() && installed_vr != *remote_vr {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
+pub fn check_system_updates_blocking(distro: String, force: bool) -> Result<Vec<PackageUpdate>, String> {
     let (program, args, source, accepted) = match distro.as_str() {
         "arch" => ("pacman", vec!["-Qu"], "pacman", vec![0, 1]),
-        "fedora" => (
-            "dnf5",
-            vec!["check-upgrade", "--quiet"],
-            "dnf",
-            vec![0, 100],
-        ),
+        "fedora" => {
+            let need_refresh = force || blaze_channel_has_unseen_updates();
+            (
+                "dnf5",
+                build_fedora_check_upgrade_args(need_refresh),
+                "dnf",
+                vec![0, 100],
+            )
+        }
         "debian" => ("apt", vec!["list", "--upgradable"], "apt", vec![0]),
         _ => return Err("Desteklenmeyen paket yöneticisi".into()),
     };
@@ -352,8 +404,12 @@ pub fn check_system_updates_blocking(distro: String) -> Result<Vec<PackageUpdate
 }
 
 #[tauri::command]
-pub async fn check_system_updates(distro: String) -> Result<Vec<PackageUpdate>, String> {
-    tauri::async_runtime::spawn_blocking(move || check_system_updates_blocking(distro))
+pub async fn check_system_updates(
+    distro: String,
+    force: Option<bool>,
+) -> Result<Vec<PackageUpdate>, String> {
+    let do_force = force.unwrap_or(false);
+    tauri::async_runtime::spawn_blocking(move || check_system_updates_blocking(distro, do_force))
         .await
         .map_err(|e| e.to_string())?
 }
@@ -406,5 +462,17 @@ mod tests {
         assert!(target.ready);
         assert_eq!(target.target_releasever, "46");
         assert_eq!(target.series, "6.0");
+    }
+
+    #[test]
+    fn fedora_check_upgrade_always_passes_assumeyes_and_supports_force_refresh() {
+        let normal = build_fedora_check_upgrade_args(false);
+        assert!(normal.contains(&"check-upgrade"));
+        assert!(normal.contains(&"--assumeyes"));
+        assert!(!normal.contains(&"--refresh"));
+
+        let forced = build_fedora_check_upgrade_args(true);
+        assert!(forced.contains(&"--assumeyes"));
+        assert!(forced.contains(&"--refresh"));
     }
 }
